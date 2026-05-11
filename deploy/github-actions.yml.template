@@ -1,0 +1,84 @@
+name: SINTEM backend · deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - './**'
+      - '.github/workflows/sintem-backend-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - staging
+          - production
+
+defaults:
+  run:
+    working-directory: sintem/backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TARGET_ENV: ${{ github.event.inputs.env || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ./package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Apply D1 migrations
+        run: |
+          if [ "$TARGET_ENV" = "staging" ]; then
+            npx wrangler d1 migrations apply sintem_db --env staging --remote
+          else
+            npx wrangler d1 migrations apply sintem_db --remote
+          fi
+
+      - name: Deploy worker
+        run: |
+          if [ "$TARGET_ENV" = "staging" ]; then
+            npx wrangler deploy --env staging
+          else
+            npx wrangler deploy
+          fi
+
+      - name: Wait for propagation
+        run: sleep 8
+
+      - name: Health check
+        run: |
+          if [ "$TARGET_ENV" = "staging" ]; then
+            URL="https://sintem-bot-staging.workers.dev/health"
+          else
+            URL="https://bot.sintem.example.com/health"
+          fi
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+            if [ "$code" = "200" ]; then
+              echo "✅ Health check passed: $URL → 200"
+              exit 0
+            fi
+            echo "Attempt $i: $code, retrying..."
+            sleep 5
+          done
+          echo "❌ Health check failed for $URL"
+          exit 1
