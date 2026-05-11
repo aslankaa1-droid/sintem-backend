@@ -1,0 +1,23 @@
+{
+  "name": "sintem-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit",
+    "db:apply:local": "wrangler d1 execute sintem_db --file=./schema.sql --local",
+    "db:apply:remote": "wrangler d1 execute sintem_db --file=./schema.sql --remote",
+    "db:migrate:remote": "wrangler d1 migrations apply sintem_db --remote",
+    "kv:seed-prompts": "node scripts/seed-prompts.mjs"
+  },
+  "dependencies": {
+    "itty-router": "5.0.18"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260101.0",
+    "typescript": "5.6.3",
+    "wrangler": "3.95.0"
+  }
+}

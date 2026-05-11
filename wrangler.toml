@@ -1,0 +1,131 @@
+# SINTEM Cloudflare Worker config
+# Apply: wrangler deploy
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+#
+# Wrangler version pinned in package.json: "wrangler": "3.95.0"
+# Compatibility date: bump раз в квартал, проверять changelog Workers runtime.
+
+name = "sintem-bot"
+main = "src/index.ts"
+compatibility_date = "2026-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers Paid plan нужен с ~1k MAU; до этого free хватает.
+# В free-плане cron triggers тоже работают, но CPU limit 50ms — для нашего worker мало,
+# Groq call съедает почти весь budget. Поэтому MVP сразу на Paid ($5/мес).
+workers_dev = false
+
+# Production route на собственный домен; для MVP можно использовать workers.dev URL,
+# главное чтобы Telegram setWebhook принял (только https + non-IP host).
+[[routes]]
+pattern = "bot.sintem.example.com/*"
+zone_name = "sintem.example.com"
+
+# ============================================================
+# D1 database binding
+# ============================================================
+# Создается командой:
+#   wrangler d1 create sintem_db
+# Скопируйте полученный database_id сюда.
+[[d1_databases]]
+binding = "DB"
+database_name = "sintem_db"
+database_id = "REPLACE_WITH_REAL_D1_ID"
+preview_database_id = "REPLACE_WITH_REAL_D1_ID"
+migrations_dir = "migrations"
+
+# ============================================================
+# KV namespaces
+# ============================================================
+# Создаются командами:
+#   wrangler kv:namespace create PROMPTS
+#   wrangler kv:namespace create RATE_LIMITS
+#   wrangler kv:namespace create BILLING_CACHE
+#   wrangler kv:namespace create RETRY_QUEUE
+[[kv_namespaces]]
+binding = "PROMPTS"
+id = "REPLACE_WITH_REAL_KV_ID_PROMPTS"
+preview_id = "REPLACE_WITH_REAL_KV_ID_PROMPTS_PREVIEW"
+
+[[kv_namespaces]]
+binding = "RATE_LIMITS"
+id = "REPLACE_WITH_REAL_KV_ID_RL"
+preview_id = "REPLACE_WITH_REAL_KV_ID_RL_PREVIEW"
+
+[[kv_namespaces]]
+binding = "BILLING_CACHE"
+id = "REPLACE_WITH_REAL_KV_ID_BILLING"
+preview_id = "REPLACE_WITH_REAL_KV_ID_BILLING_PREVIEW"
+
+[[kv_namespaces]]
+binding = "RETRY_QUEUE"
+id = "REPLACE_WITH_REAL_KV_ID_RETRY"
+preview_id = "REPLACE_WITH_REAL_KV_ID_RETRY_PREVIEW"
+
+# ============================================================
+# Cron triggers
+# ============================================================
+# Каждые 5 минут: retry failed Groq, re-check pending payments.
+# Каждый день 00:05 UTC: сброс usage_quota, deactivate expired subs, truncate messages > 30d.
+[triggers]
+crons = ["*/5 * * * *", "5 0 * * *"]
+
+# ============================================================
+# Vars (non-secret)
+# ============================================================
+[vars]
+ENVIRONMENT = "production"
+NOWPAYMENTS_API_BASE = "https://api.nowpayments.io/v1"
+CRYPTOCLOUD_API_BASE = "https://api.cryptocloud.plus/v2"
+GROQ_API_BASE = "https://api.groq.com/openai/v1"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+OPENROUTER_MODEL = "qwen/qwen3.6-plus"
+OPENROUTER_MODEL_FALLBACK = "qwen/qwen-2.5-72b-instruct"
+YANDEX_API_BASE = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+YANDEX_MODEL = "yandexgpt/latest"
+PUBLIC_BASE_URL = "https://bot.sintem.example.com"
+
+# ============================================================
+# Secrets (не пишем сюда! Ставим командой `wrangler secret put`)
+# ============================================================
+# Список секретов:
+#   wrangler secret put TELEGRAM_BOT_TOKEN
+#   wrangler secret put TELEGRAM_WEBHOOK_SECRET
+#   wrangler secret put GROQ_API_KEY
+#   wrangler secret put OPENROUTER_API_KEY
+#   wrangler secret put YANDEX_API_KEY
+#   wrangler secret put YANDEX_FOLDER_ID
+#   wrangler secret put NOWPAYMENTS_API_KEY
+#   wrangler secret put NOWPAYMENTS_IPN_SECRET
+#   wrangler secret put CRYPTOCLOUD_API_KEY
+#   wrangler secret put CRYPTOCLOUD_SECRET
+#   wrangler secret put CRYPTOCLOUD_SHOP_ID
+#   wrangler secret put ADMIN_TG_USER_IDS
+
+# ============================================================
+# Observability
+# ============================================================
+[observability]
+enabled = true
+head_sampling_rate = 1.0  # 100% logs в MVP, снизим до 0.1 при росте
+
+# ============================================================
+# Staging environment
+# ============================================================
+[env.staging]
+name = "sintem-bot-staging"
+workers_dev = true
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+PUBLIC_BASE_URL = "https://sintem-bot-staging.workers.dev"
+NOWPAYMENTS_API_BASE = "https://api-sandbox.nowpayments.io/v1"
+CRYPTOCLOUD_API_BASE = "https://api.cryptocloud.plus/v2"
+GROQ_API_BASE = "https://api.groq.com/openai/v1"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+OPENROUTER_MODEL = "qwen/qwen3.6-plus"
+OPENROUTER_MODEL_FALLBACK = "qwen/qwen-2.5-72b-instruct"
+YANDEX_API_BASE = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+YANDEX_MODEL = "yandexgpt/latest"
