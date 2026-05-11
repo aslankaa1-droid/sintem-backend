@@ -93,21 +93,45 @@ BILLING_CACHE_ID=""; BILLING_CACHE_PREVIEW_ID=""
 RETRY_QUEUE_ID=""; RETRY_QUEUE_PREVIEW_ID=""
 
 create_kv() {
+  # Verbose messages go to stderr so command substitution $(create_kv ...)
+  # only captures the final ID printed to stdout. Bug fixed 2026-05-12.
   local name=$1
   local preview_flag=$2  # "" or "--preview"
   local label
   if [ -z "$preview_flag" ]; then label="prod"; else label="preview"; fi
-  echo "  - $name ($label)"
+  echo "  - $name ($label)" >&2
   local out
   out=$(npx wrangler kv:namespace create "$name" $preview_flag 2>&1 || true)
   local id
   id=$(extract_id "$out")
   if [ -z "$id" ]; then
-    echo "    WARNING: could not parse ID, raw output:"
-    echo "$out" | sed 's/^/    /'
-    return 1
+    # Idempotency: namespace may already exist — fall back to `kv:namespace list`
+    local list_out target_title
+    list_out=$(npx wrangler kv:namespace list 2>&1 || true)
+    if [ -z "$preview_flag" ]; then target_title="sintem-bot-${name}"; else target_title="sintem-bot-${name}_preview"; fi
+    id=$(echo "$list_out" | python -c "
+import json, sys, re
+raw = sys.stdin.read()
+m = re.search(r'\[\s*\{.*\]', raw, re.S)
+if not m: sys.exit(0)
+try:
+    arr = json.loads(m.group(0))
+except Exception:
+    sys.exit(0)
+for ns in arr:
+    if ns.get('title') == '$target_title':
+        print(ns.get('id', ''))
+        break
+")
+    if [ -z "$id" ]; then
+      echo "    ERROR: could not parse ID; raw create output:" >&2
+      echo "$out" | sed 's/^/    /' >&2
+      return 1
+    fi
+    echo "    (already exists) ID: $id" >&2
+  else
+    echo "    ID: $id" >&2
   fi
-  echo "    ID: $id"
   printf '%s' "$id"
 }
 
